@@ -38,7 +38,7 @@ maprcli stream create -path /LogStream:App -defaultpartitions 10 -produceperm p 
  `[ -copymetafrom Stream to copy attributes from. default:none ]`
  `[ -ischangelog Stream to store changelog. default:false ]`
 
-### 4. Add the following lines to log4j.properties for your application
+### 4. Add the following lines to `log4j.properties` for your application
 ```
 log4j.rootLogger=INFO, streams
 log4j.appender.streams=com.mapr.log4jappender.StreamsLog4jAppender

@@ -13,9 +13,9 @@ Add the `mapr-log4j-appender-1.0-SNAPSHOT.jar` generated in `target` folder to y
 
 ### 3. Make sure you create a Stream to collect logs
 
-Application logs will be directed to MapR-ES. Hence we have to first create an (Event Stream)[https://maprdocs.mapr.com/home/MapR_Streams/getting_started_with_mapr_streams.html]
+Application logs will be directed to MapR-ES. Hence we have to first create an [Event Stream](https://maprdocs.mapr.com/home/MapR_Streams/getting_started_with_mapr_streams.html)
 
-**Example using (maprcli)[https://maprdocs.mapr.com/home/ReferenceGuide/maprcli-REST-API-Syntax.html]**
+**Example using [maprcli](https://maprdocs.mapr.com/home/ReferenceGuide/maprcli-REST-API-Syntax.html)**
 
 Let's create an event stream `LogStream` with _public_ permissions so that anyone can _produce to_ / _consume from_ / _create topics_ in the event streams.
 
@@ -38,7 +38,7 @@ maprcli stream create -path /LogStream:App -defaultpartitions 10 -produceperm p 
  `[ -copymetafrom Stream to copy attributes from. default:none ]`
  `[ -ischangelog Stream to store changelog. default:false ]`
 
-### 4. Add the following lines to `log4j.properties` for your application
+### 4. Add the following lines to log4j.properties for your application
 ```
 log4j.rootLogger=INFO, streams
 log4j.appender.streams=com.mapr.log4jappender.StreamsLog4jAppender

@@ -23,6 +23,7 @@ public class StreamsLog4jAppender extends AppenderSkeleton {
     private static final String ACKS_CONFIG = ProducerConfig.ACKS_CONFIG;
     private static final String KEY_SERIALIZER_CLASS_CONFIG = ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG;
     private static final String VALUE_SERIALIZER_CLASS_CONFIG = ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG;
+    private static final String BUFFER_TIME_MAX_MS = "streams.buffer.max.time.ms";
 
 
     private String brokerList = null;
@@ -115,7 +116,7 @@ public class StreamsLog4jAppender extends AppenderSkeleton {
             props.put(COMPRESSION_TYPE_CONFIG, compressionType);
         if(acks != null)
             props.put(ACKS_CONFIG, acks);
-
+        props.put(BUFFER_TIME_MAX_MS, "100");
         props.put(KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
         props.put(VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
         this.producer = getKafkaProducer(props);
@@ -123,7 +124,7 @@ public class StreamsLog4jAppender extends AppenderSkeleton {
 
     @Override
     protected void append(LoggingEvent event) {
-        String message = event.getRenderedMessage();
+        String message = eventToString(event);
         System.out.println("Message: " + message);
         /*LogLog.debug("[" + new Date(event.getTimeStamp()) + "]" + message);*/
         Future<RecordMetadata> response = producer.send(new ProducerRecord<String, String>(topic, message));
@@ -139,16 +140,21 @@ public class StreamsLog4jAppender extends AppenderSkeleton {
 
     }
 
+    private String eventToString (LoggingEvent event) {
+        return (this.layout == null) ? event.getRenderedMessage() : this.layout.format(event);
+    }
+
     @Override
     public void close() {
         if (!this.closed) {
             this.closed = true;
+            producer.flush();
             producer.close();
         }
     }
 
     @Override
     public boolean requiresLayout() {
-        return false;
+        return true;
     }
 }

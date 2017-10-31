@@ -12,6 +12,7 @@ import org.apache.log4j.spi.LoggingEvent;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Log4jAppender which would write to MapR-Streams
@@ -34,6 +35,7 @@ public class StreamsLog4jAppender extends AppenderSkeleton {
     private String valueserializer = null;*/
     private boolean syncSend = false;
     private Producer<String, String> producer = null;
+    private AtomicLong logSeqNum = null;
 
     public String getBrokerList() {
         return brokerList;
@@ -120,14 +122,16 @@ public class StreamsLog4jAppender extends AppenderSkeleton {
         props.put(KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
         props.put(VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
         this.producer = getKafkaProducer(props);
+        this.logSeqNum = new AtomicLong(0);
     }
 
     @Override
     protected void append(LoggingEvent event) {
         String message = eventToString(event);
-        System.out.println("Message: " + message);
-        /*LogLog.debug("[" + new Date(event.getTimeStamp()) + "]" + message);*/
-        Future<RecordMetadata> response = producer.send(new ProducerRecord<String, String>(topic, message));
+        /*System.out.println("Message: " + message);*/
+        Future<RecordMetadata> response = producer.send(
+                new ProducerRecord<String, String>(topic,
+                        System.currentTimeMillis() + "-" + logSeqNum.incrementAndGet(), message));
         if (syncSend) {
             try {
                 response.get();

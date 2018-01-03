@@ -97,13 +97,13 @@ public class StreamsLog4jAppender extends AppenderSkeleton {
         return producer;
     }
 
-    private Producer<String, String> getKafkaProducer(Properties props) {
+    private synchronized Producer<String, String> getKafkaProducer(Properties props) {
         return new KafkaProducer<String, String>(props);
     }
 
 
     @Override
-    public void activateOptions() {
+    public synchronized void activateOptions() {
         // check for config parameter validity
         Properties props = new Properties();
         if (brokerList != null)
@@ -126,12 +126,11 @@ public class StreamsLog4jAppender extends AppenderSkeleton {
     }
 
     @Override
-    protected void append(LoggingEvent event) {
+    protected synchronized void append(LoggingEvent event) {
         String message = eventToString(event);
         /*System.out.println("Message: " + message);*/
         Future<RecordMetadata> response = producer.send(
-                new ProducerRecord<String, String>(topic,
-                        System.currentTimeMillis() + "-" + logSeqNum.incrementAndGet(), message));
+                new ProducerRecord<String, String>(topic, "" + logSeqNum.incrementAndGet(), message));
         if (syncSend) {
             try {
                 response.get();
@@ -149,7 +148,7 @@ public class StreamsLog4jAppender extends AppenderSkeleton {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         if (!this.closed) {
             this.closed = true;
             producer.flush();

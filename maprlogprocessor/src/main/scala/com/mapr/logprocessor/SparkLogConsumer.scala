@@ -14,25 +14,17 @@ import org.apache.spark.sql.types._
   */
 object SparkLogConsumer extends Serializable {
 
-  case class LogItem(id: String,
-                     date: String,
-                     time: String,
-                     logLevel: String,
-                     //thread: String,
-                     log: String = "") extends Serializable
-
   def main(args: Array[String]): Unit = {
-    if (args.length < 2) {
-      throw new IllegalArgumentException("You must specify topics to subscribe and the sink table")
-    }
+    if (args.length < 2) throw new IllegalArgumentException("You must specify topics to subscribe and the sink table")
 
     val Array(topics, table) = args
-    val brokers = "maprdemo:9092" //Dummy value for MapR Streams
+    val brokers = "maprdemo:9092"
     val groupId = "LogConsumer"
     val batchInterval = "2"
     val pollTimeout = "10000"
+    val missedLogTable = "/missedLogs"
 
-    val sparkConf = new SparkConf().setAppName("LogStream")
+    val sparkConf = new SparkConf().setAppName("LogStreamProcessor")
     val sc = new SparkContext(sparkConf)
     val ssc = new StreamingContext(sc, Seconds(batchInterval.toInt))
 
@@ -42,7 +34,7 @@ object SparkLogConsumer extends Serializable {
       ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG -> brokers,
       ConsumerConfig.GROUP_ID_CONFIG -> groupId,
       ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.StringDeserializer",
-      ConsumerConfig.AUTO_OFFSET_RESET_CONFIG -> "earliest",
+      ConsumerConfig.AUTO_OFFSET_RESET_CONFIG -> "latest",
       ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG -> "org.apache.kafka.common.serialization.StringDeserializer",
       ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG -> "true",
       "spark.streaming.kafka.consumer.poll.ms " -> pollTimeout
@@ -53,48 +45,57 @@ object SparkLogConsumer extends Serializable {
       ssc, LocationStrategies.PreferConsistent, consumerStrategy
     )
 
-    val valDStream: DStream[String] = msgDStream.map(msg => msg.key() + " " + msg.value())
+    val valDStream = msgDStream.map(msg =>
+
+      /**
+        * The row key of the log is designed to contain the following information
+        * 1. Timestamp at which the log was produced.
+        * 2. Appender's atomic counter
+        * 3. Offset of the message
+        * 4. Partition from which the message was obtained.
+        */
+
+      msg.timestamp() + "-" + msg.key() + "-" + msg.offset() + "-" + msg.partition() + " " + //_id for the message
+        msg.value())
+
     valDStream.print()
 
     valDStream.foreachRDD(rdd =>
       if(!rdd.isEmpty()) {
         val spark = SparkSession.builder.config(rdd.sparkContext.getConf).getOrCreate
 
-        import spark.implicits._
-        import org.apache.spark.sql.functions._
         import com.mapr.db.spark._
         import com.mapr.db.spark.sql._
 
-        val schema = StructType(
-          StructField(LogConfig.ID, StringType, false) ::
-          StructField(LogConfig.DATE, DateType, true) ::
-          StructField(LogConfig.TIME, TimestampType, true) ::
-          StructField(LogConfig.LOGLEVEL, StringType, true) ::
-          StructField(LogConfig.LOG, StringType, true) ::
-          Nil)
-
-        def parseLogLine(log: String): Row = {
+        def parseLogLine(log: String) = {
           val lineItem = log.trim.split("\\s+")
+          val providerItem = log.trim.split("provider-")
           val logItem = LogItem(
             lineItem(0),
             lineItem(1),
             lineItem(2),
             lineItem(3),
-            lineItem.drop(1).mkString(" "))
+            lineItem(4),
+            lineItem(5),
+            lineItem.drop(1).mkString(" "),
+            if(providerItem.length > 1) providerItem.last else " ")
 
           MapRDBSpark.docToRow(
             MapRDBSpark.newDocument()
-              .set(LogConfig.ID, logItem.id)
-              .set(LogConfig.DATE, ODate.parse(logItem.date))
-              .set(LogConfig.TIME, OTime.parse(logItem.time))
-              .set(LogConfig.LOGLEVEL, logItem.logLevel)
-              .set(LogConfig.LOG, lineItem.mkString(" ")), schema)
+              .set(LogFields.ID, logItem.id)
+              .set(LogFields.DATE, ODate.parse(logItem.date))
+              .set(LogFields.TIME, OTime.parse(logItem.time))
+              .set(LogFields.LOGLEVEL, logItem.logLevel)
+              .set(LogFields.THREAD, logItem.thread)
+              .set(LogFields.LINENUM, logItem.lineNum)
+              .set(LogFields.LOG, logItem.log)
+              .set(LogFields.PROVIDER, logItem.dataProvider), LogFields.schema)
         }
 
-        val df = spark.createDataFrame(rdd.map(parseLogLine), schema)
-        /*df.show
-        df.printSchema()*/
-        df.write.option("Operation", "Insert").saveToMapRDB(table, LogConfig.ID)
+        val df = spark.createDataFrame(rdd.map(parseLogLine), LogFields.schema)
+        //All _id should be unique and should fail if we are re-inserting a row
+        //TODO: Handle the failure
+        df.write.option("Operation", "Insert").saveToMapRDB(table, LogFields.ID)
       }
     )
 
